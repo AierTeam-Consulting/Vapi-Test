@@ -42,7 +42,7 @@ app.post('/vapi/tools', async (req, res) => {
   console.log(`Tool called: ${toolName}`, parsedArgs);
 
   try {
-    if (toolName === 'cancel_appointment' || toolName === 'manageAppointment') {
+    if (toolName === 'cancel_appointment' || toolName === 'manageAppointment' || toolName === 'delete_google_calendar_event') {
       const result = await cancelAppointment(parsedArgs);
       return res.status(200).json({
         results: [{ toolCallId, result }]
