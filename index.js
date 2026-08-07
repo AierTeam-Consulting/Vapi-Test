@@ -62,10 +62,11 @@ app.post('/vapi/tools', async (req, res) => {
 });
 
 // ---- CANCEL APPOINTMENT FUNCTION ----
-async function cancelAppointment({ patientName, name, date, appointmentDate }) {
+async function cancelAppointment({ patientName, name, date, appointmentDate, appointment_date, appointmentTime, appointment_time }) {
   const calendarId = process.env.GOOGLE_CALENDAR_ID;
   const searchName = patientName || name;
-  const searchDate = date || appointmentDate;
+  const searchDate = date || appointmentDate || appointment_date;
+  const searchTime = appointmentTime || appointment_time;
 
   if (!searchName || !searchDate) {
     return 'Missing patient name or date — cannot cancel.';
@@ -87,12 +88,26 @@ async function cancelAppointment({ patientName, name, date, appointmentDate }) {
   const events = response.data.items || [];
   console.log(`Found ${events.length} events on ${searchDate}`);
 
-  const match = events.find(e =>
+  // Filter by name first
+  const nameMatches = events.filter(e =>
     e.summary && e.summary.toLowerCase().includes(searchName.toLowerCase())
   );
 
-  if (!match) {
+  let match;
+  if (nameMatches.length === 0) {
     return `No matching appointment was found for ${searchName} on ${searchDate}.`;
+  } else if (nameMatches.length === 1) {
+    match = nameMatches[0];
+  } else if (nameMatches.length > 1 && searchTime) {
+    match = nameMatches.find(e => {
+      const eventStart = e.start?.dateTime || '';
+      return eventStart.includes(searchTime);
+    });
+    if (!match) {
+      return `Multiple appointments match this name and date — please confirm the appointment time.`;
+    }
+  } else {
+    return `Multiple appointments match this name and date — please confirm the appointment time.`;
   }
 
   await calendar.events.delete({
@@ -101,7 +116,7 @@ async function cancelAppointment({ patientName, name, date, appointmentDate }) {
     sendUpdates: 'all'
   });
 
-  return `Appointment for ${searchName} on ${searchDate} was canceled successfully.`;
+  return `Appointment for ${searchName} on ${searchDate} at ${searchTime || 'the requested time'} was canceled successfully.`;
 }
 
 // ---- START SERVER ----
