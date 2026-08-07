@@ -29,14 +29,12 @@ app.post('/vapi/tools', async (req, res) => {
 
   if (!toolCall) {
     console.log('No tool call found');
-    return res.json({
-      results: [{
-        toolCallId: 'unknown',
-        result: 'Received but could not parse tool call'
-      }]
+    return res.status(200).json({
+      results: [{ toolCallId: 'unknown', result: 'Received but could not parse tool call' }]
     });
   }
 
+  const toolCallId = toolCall.id;
   const toolName = toolCall.function.name;
   const args = toolCall.function.arguments;
   const parsedArgs = typeof args === 'string' ? JSON.parse(args) : args;
@@ -46,17 +44,19 @@ app.post('/vapi/tools', async (req, res) => {
   try {
     if (toolName === 'cancel_appointment' || toolName === 'manageAppointment') {
       const result = await cancelAppointment(parsedArgs);
-      return res.json({ results: [{ toolCallId: toolCall.id, result }] });
+      return res.status(200).json({
+        results: [{ toolCallId, result }]
+      });
     }
 
-    return res.json({
-      results: [{ toolCallId: toolCall.id, result: 'Unknown tool' }]
+    return res.status(200).json({
+      results: [{ toolCallId, result: 'Unknown tool' }]
     });
 
   } catch (err) {
     console.error('Tool error:', err);
-    return res.json({
-      results: [{ toolCallId: toolCall.id, result: `Error: ${err.message}` }]
+    return res.status(200).json({
+      results: [{ toolCallId, result: `Error: ${err.message}` }]
     });
   }
 });
