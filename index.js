@@ -92,10 +92,7 @@ async function cancelAppointment({ patientName, name, date, appointmentDate }) {
   );
 
   if (!match) {
-    return JSON.stringify({
-      status: 'not_found',
-      message: `No matching appointment found for ${searchName} on ${searchDate}.`
-    });
+    return `No matching appointment was found for ${searchName} on ${searchDate}.`;
   }
 
   await calendar.events.delete({
@@ -104,11 +101,7 @@ async function cancelAppointment({ patientName, name, date, appointmentDate }) {
     sendUpdates: 'all'
   });
 
-  return JSON.stringify({
-    status: 'confirmed',
-    eventId: match.id,
-    message: `Appointment for ${searchName} on ${searchDate} has been successfully cancelled.`
-  });
+  return `Appointment for ${searchName} on ${searchDate} was canceled successfully.`;
 }
 
 // ---- START SERVER ----
