@@ -1,8 +1,11 @@
 const express = require('express');
 const { google } = require('googleapis');
+const { DateTime } = require('luxon');
 
 const app = express();
 app.use(express.json());
+
+const CLINIC_TZ = 'America/Chicago';
 
 // ---- GOOGLE OAUTH2 ----
 const oauth2Client = new google.auth.OAuth2(
@@ -72,21 +75,32 @@ async function cancelAppointment({ patientName, name, date, appointmentDate, app
     return 'Missing patient name or date — cannot cancel.';
   }
 
-  const startOfDay = new Date(searchDate);
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(searchDate);
-  endOfDay.setHours(23, 59, 59, 999);
+  // FIX: build the day window in the CLINIC's local timezone (America/Chicago),
+  // then convert to UTC for the Calendar API call.
+  //
+  // The previous version did `new Date(searchDate)` + `.setHours(0,0,0,0)`,
+  // which anchors the window to the SERVER's local timezone (UTC on Railway),
+  // not Chicago. That silently excluded any appointment where the Chicago
+  // local time crosses into the next UTC calendar day — i.e. anything from
+  // ~7pm Chicago time onward (7pm CDT = midnight UTC the next day). That's
+  // exactly why 7am cancellations worked but 7pm ones returned
+  // "no appointment found."
+  const dayStart = DateTime.fromISO(searchDate, { zone: CLINIC_TZ }).startOf('day');
+  const dayEnd = dayStart.endOf('day');
 
   const response = await calendar.events.list({
     calendarId,
-    timeMin: startOfDay.toISOString(),
-    timeMax: endOfDay.toISOString(),
+    timeMin: dayStart.toUTC().toISO(),
+    timeMax: dayEnd.toUTC().toISO(),
     singleEvents: true,
     orderBy: 'startTime',
   });
 
   const events = response.data.items || [];
-  console.log(`Found ${events.length} events on ${searchDate}`);
+  console.log(
+    `Found ${events.length} events on ${searchDate} ` +
+    `(Chicago-local window: ${dayStart.toISO()} to ${dayEnd.toISO()})`
+  );
 
   // Filter by name first
   const nameMatches = events.filter(e =>
@@ -99,9 +113,16 @@ async function cancelAppointment({ patientName, name, date, appointmentDate, app
   } else if (nameMatches.length === 1) {
     match = nameMatches[0];
   } else if (nameMatches.length > 1 && searchTime) {
+    // FIX: compare times as Chicago-local HH:mm instead of doing a raw
+    // substring match against whatever offset format Google happens to
+    // return. Keeps this correct across DST (CDT vs CST) and regardless of
+    // how the event's dateTime string is formatted.
+    const targetTime = normalizeTime(searchTime);
     match = nameMatches.find(e => {
-      const eventStart = e.start?.dateTime || '';
-      return eventStart.includes(searchTime);
+      const eventStart = e.start?.dateTime;
+      if (!eventStart) return false;
+      const eventLocalTime = DateTime.fromISO(eventStart).setZone(CLINIC_TZ).toFormat('HH:mm');
+      return eventLocalTime === targetTime;
     });
     if (!match) {
       return `Multiple appointments match this name and date — please confirm the appointment time.`;
@@ -117,6 +138,14 @@ async function cancelAppointment({ patientName, name, date, appointmentDate, app
   });
 
   return `Appointment for ${searchName} on ${searchDate} at ${searchTime || 'the requested time'} was canceled successfully.`;
+}
+
+// Normalizes "7:00 PM", "19:00", "7:00pm", etc. into 24-hour "HH:mm" for comparison.
+function normalizeTime(raw) {
+  const t = raw.trim();
+  let parsed = DateTime.fromFormat(t.toUpperCase(), 'h:mm a'); // "7:00 PM"
+  if (!parsed.isValid) parsed = DateTime.fromFormat(t, 'HH:mm'); // "19:00"
+  return parsed.isValid ? parsed.toFormat('HH:mm') : t;
 }
 
 // ---- START SERVER ----
